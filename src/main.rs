@@ -37,7 +37,7 @@ fn main() {
         match show_main_menu() {
             Some(choice) => match choice.as_str() {
                 "Start" => start_services(&services),
-                "Stop" => stop_all_services(&services),
+                "Stop" => stop_services(&services),
                 "Restart" => restart_services(&services),
                 "Status" => show_status(&services),
                 "Logs" => show_logs(&services),
@@ -229,8 +229,14 @@ fn start_services(services: &[Service]) {
     pause();
 }
 
-fn stop_all_services(services: &[Service]) {
-    if Confirm::new("Stop all services?")
+fn stop_services(services: &[Service]) {
+    let selected = select_services(services);
+
+    if selected.is_empty() {
+        return;
+    }
+
+    if Confirm::new(&format!("Stop {} service(s)?", selected.len()))
         .with_default(false)
         .prompt()
         .unwrap_or(false)
@@ -239,7 +245,7 @@ fn stop_all_services(services: &[Service]) {
 
         let mut success_count = 0;
 
-        for service in services {
+        for service in &selected {
             print!("  {} ... ", service.name.cyan());
             if run_docker_compose(service, &["down"]) {
                 println!("{}", "OK".green());
@@ -249,10 +255,9 @@ fn stop_all_services(services: &[Service]) {
             }
         }
 
-        println!("\n{}\n", format!("{}/{} services stopped", success_count, services.len()).green());
+        println!("\n{}\n", format!("{}/{} services stopped", success_count, selected.len()).green());
+        pause();
     }
-
-    pause();
 }
 
 fn restart_services(services: &[Service]) {
