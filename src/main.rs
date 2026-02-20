@@ -11,6 +11,18 @@ struct Service {
 }
 
 fn main() {
+    // Parse optional directory argument
+    let target_dir = std::env::args()
+        .nth(1)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+
+    // Change to target directory
+    if let Err(e) = std::env::set_current_dir(&target_dir) {
+        println!("{}", format!("Error: Cannot access directory {:?}: {}", target_dir, e).red());
+        return;
+    }
+
     let services = find_services();
 
     if services.is_empty() {
