@@ -59,27 +59,104 @@ fn main() {
 fn find_services() -> Vec<Service> {
     let current_dir = std::env::current_dir().unwrap();
     let mut services = Vec::new();
+    let mut visited = std::collections::HashSet::new();
 
-    if let Ok(entries) = fs::read_dir(&current_dir) {
+    // Check root directory first
+    let compose_files = get_compose_files(&current_dir);
+    if !compose_files.is_empty() {
+        if let Some(compose_file) = select_compose_file(&compose_files) {
+            services.push(Service {
+                name: "root".to_string(),
+                path: current_dir.clone(),
+                compose_file,
+            });
+        }
+    }
+
+    // Then scan subdirectories
+    visited.insert(current_dir.clone());
+    scan_directory(&current_dir, &mut services, &mut visited);
+    services.sort_by(|a, b| a.name.cmp(&b.name));
+    services
+}
+
+fn scan_directory(dir: &PathBuf, services: &mut Vec<Service>, visited: &mut std::collections::HashSet<PathBuf>) {
+    if visited.contains(dir) {
+        return;
+    }
+    visited.insert(dir.clone());
+
+    if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
+
+            // Skip hidden directories and common non-service directories
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                if name.starts_with('.') || matches!(name, "target" | "node_modules") {
+                    continue;
+                }
+            }
+
             if path.is_dir() {
-                let compose_path = path.join("docker-compose.yml");
-                if compose_path.exists() {
-                    if let Some(service_name) = path.file_name().and_then(|n| n.to_str()) {
-                        services.push(Service {
-                            name: service_name.to_string(),
-                            path,
-                            compose_file: "docker-compose.yml".to_string(),
-                        });
+                let compose_files = get_compose_files(&path);
+
+                if !compose_files.is_empty() {
+                    // Has compose files in this directory
+                    if let Some(compose_file) = select_compose_file(&compose_files) {
+                        if let Some(service_name) = path.file_name().and_then(|n| n.to_str()) {
+                            services.push(Service {
+                                name: service_name.to_string(),
+                                path: path.clone(),
+                                compose_file,
+                            });
+                        }
+                    }
+                } else {
+                    // No compose files, recurse deeper
+                    scan_directory(&path, services, visited);
+                }
+            }
+        }
+    }
+}
+
+fn get_compose_files(dir: &PathBuf) -> Vec<String> {
+    let mut files = Vec::new();
+
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
+                    // Match: docker-compose.yml, docker-compose.prod.yml, compose.yaml, etc.
+                    if (filename.starts_with("docker-compose") || filename.starts_with("compose"))
+                        && (filename.ends_with(".yml") || filename.ends_with(".yaml"))
+                    {
+                        files.push(filename.to_string());
                     }
                 }
             }
         }
     }
 
-    services.sort_by(|a, b| a.name.cmp(&b.name));
-    services
+    files.sort();
+    files
+}
+
+fn select_compose_file(files: &[String]) -> Option<String> {
+    if files.is_empty() {
+        return None;
+    }
+
+    if files.len() == 1 {
+        return Some(files[0].clone());
+    }
+
+    // Multiple files: ask user to choose
+    match Select::new("Multiple compose files found. Which one to use?", files.to_vec()).prompt() {
+        Ok(selected) => Some(selected),
+        Err(_) => None,
+    }
 }
 
 fn show_main_menu() -> Option<String> {
