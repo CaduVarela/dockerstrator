@@ -291,12 +291,44 @@ fn show_status(services: &[Service]) {
     println!("\n{}\n", "Services Status:".bold().cyan());
 
     for service in services {
-        println!("{}", format!("{}", service.name).cyan().bold());
-        run_docker_compose(service, &["ps"]);
-        println!();
+        let status = get_service_status(service);
+        let status_text = if status {
+            "UP".green()
+        } else {
+            "DOWN".red()
+        };
+        println!("  {}: {}", service.name.cyan(), status_text);
     }
 
+    println!();
     pause();
+}
+
+fn get_service_status(service: &Service) -> bool {
+    // Try with docker-compose first
+    let mut cmd = Command::new("docker-compose");
+    cmd.current_dir(&service.path)
+        .arg("-f")
+        .arg(&service.compose_file)
+        .args(&["ps", "-q"]);
+
+    match cmd.output() {
+        Ok(output) => !output.stdout.is_empty(),
+        Err(_) => {
+            // Fallback to docker compose
+            let mut cmd = Command::new("docker");
+            cmd.current_dir(&service.path)
+                .arg("compose")
+                .arg("-f")
+                .arg(&service.compose_file)
+                .args(&["ps", "-q"]);
+
+            match cmd.output() {
+                Ok(output) => !output.stdout.is_empty(),
+                Err(_) => false,
+            }
+        }
+    }
 }
 
 fn show_logs(services: &[Service]) {
