@@ -181,6 +181,7 @@ fn select_services(services: &[Service]) -> Vec<Service> {
     let service_names: Vec<&str> = services.iter().map(|s| s.name.as_str()).collect();
 
     match MultiSelect::new("Select services:", service_names)
+        .with_help_message("↑↓ navigate  SPACE select  ENTER confirm  ESC cancel")
         .with_formatter(&|items| {
             let selected: Vec<&str> = items.iter().map(|s| *s.value).collect();
             if selected.is_empty() {
