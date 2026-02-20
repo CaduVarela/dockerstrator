@@ -339,21 +339,55 @@ fn show_logs(services: &[Service]) {
         .collect();
 
     if let Ok(selected) = Select::new("Which service?", service_names).prompt() {
-        println!("\n{}\n", "Streaming logs (Ctrl+C to stop)...".yellow());
+        println!("\n{}\n", "Streaming logs (Ctrl+C to return to menu)...".yellow());
 
         if selected == "All" {
             for service in services {
-                run_docker_compose(service, &["logs", "-f"]);
+                stream_logs(service);
             }
         } else {
             if let Some(service) = services.iter().find(|s| s.name == selected) {
-                run_docker_compose(service, &["logs", "-f"]);
+                stream_logs(service);
             }
         }
     }
+}
 
-    println!();
-    pause();
+fn stream_logs(service: &Service) {
+    let mut cmd = Command::new("docker-compose");
+    cmd.current_dir(&service.path)
+        .arg("-f")
+        .arg(&service.compose_file)
+        .args(&["logs", "-f"]);
+
+    // Try spawning docker-compose
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(_) => {
+            // Fallback to docker compose
+            let mut cmd = Command::new("docker");
+            cmd.current_dir(&service.path)
+                .arg("compose")
+                .arg("-f")
+                .arg(&service.compose_file)
+                .args(&["logs", "-f"]);
+
+            match cmd.spawn() {
+                Ok(c) => c,
+                Err(_) => return,
+            }
+        }
+    };
+
+    // Ignore Ctrl+C in parent while child is running
+    let _ctrlc_guard = ctrlc::set_handler(|| {})
+        .map_err(|_| ())
+        .ok();
+
+    // Wait for child to finish
+    let _ = child.wait();
+
+    // Ctrl+C handler will be restored when _ctrlc_guard is dropped
 }
 
 fn cleanup_data(services: &[Service]) {
