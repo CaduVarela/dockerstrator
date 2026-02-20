@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Dockerstrator Installation Script
 # Simple one-liner install: curl -sSL https://raw.githubusercontent.com/caduvarela/dockerstrator/master/install.sh | sh
@@ -15,7 +15,7 @@ BLUE='\033[0;34m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-echo -e "${BLUE}Installing Dockerstrator...${NC}\n"
+printf "${BLUE}Installing Dockerstrator...${NC}\n\n"
 
 # Detect OS and architecture
 OS="$(uname -s)"
@@ -28,7 +28,7 @@ case "$OS" in
         elif [ "$ARCH" = "aarch64" ]; then
             BINARY_NAME="dockerstrator-linux-arm64"
         else
-            echo -e "${RED}Unsupported architecture: $ARCH${NC}"
+            printf "${RED}Unsupported architecture: $ARCH${NC}\n"
             exit 1
         fi
         ;;
@@ -38,12 +38,12 @@ case "$OS" in
         elif [ "$ARCH" = "arm64" ]; then
             BINARY_NAME="dockerstrator-macos-arm64"
         else
-            echo -e "${RED}Unsupported architecture: $ARCH${NC}"
+            printf "${RED}Unsupported architecture: $ARCH${NC}\n"
             exit 1
         fi
         ;;
     *)
-        echo -e "${RED}Unsupported OS: $OS${NC}"
+        printf "${RED}Unsupported OS: $OS${NC}\n"
         exit 1
         ;;
 esac
@@ -54,17 +54,17 @@ mkdir -p "$INSTALL_PATH"
 # Download latest release
 RELEASE_URL="https://github.com/$REPO_OWNER/$REPO_NAME/releases/latest/download/$BINARY_NAME"
 
-echo -e "${BLUE}Downloading from: $RELEASE_URL${NC}"
+printf "${BLUE}Downloading from: $RELEASE_URL${NC}\n"
 if ! command -v curl >/dev/null 2>&1; then
-    echo -e "${RED}curl is required but not installed${NC}"
+    printf "${RED}curl is required but not installed${NC}\n"
     exit 1
 fi
 
 TEMP_FILE=$(mktemp)
-trap "rm -f $TEMP_FILE" EXIT
+trap 'rm -f "$TEMP_FILE"' EXIT
 
 if ! curl -sSfL "$RELEASE_URL" -o "$TEMP_FILE"; then
-    echo -e "${RED}Failed to download. Make sure:${NC}"
+    printf "${RED}Failed to download. Make sure:${NC}\n"
     echo "  1. The repository exists and is public"
     echo "  2. A release with $BINARY_NAME has been created"
     echo "  3. You have internet connection"
@@ -76,27 +76,29 @@ mv "$TEMP_FILE" "$INSTALL_PATH/dockerstrator"
 chmod +x "$INSTALL_PATH/dockerstrator"
 
 # Check if .local/bin is in PATH
-if [[ ":$PATH:" != *":$INSTALL_PATH:"* ]]; then
-    echo -e "${BLUE}Adding $INSTALL_PATH to PATH...${NC}"
+case ":$PATH:" in
+    *":$INSTALL_PATH:"*) ;;
+    *)
+        printf "${BLUE}Adding $INSTALL_PATH to PATH...${NC}\n"
 
-    # Detect shell
-    SHELL_RC=""
-    if [ -f "$HOME/.bashrc" ]; then
-        SHELL_RC="$HOME/.bashrc"
-    elif [ -f "$HOME/.zshrc" ]; then
-        SHELL_RC="$HOME/.zshrc"
-    fi
-
-    if [ -n "$SHELL_RC" ]; then
-        if ! grep -q "$INSTALL_PATH" "$SHELL_RC"; then
-            echo "export PATH=\"$INSTALL_PATH:\$PATH\"" >> "$SHELL_RC"
-            echo -e "${BLUE}Added to $SHELL_RC${NC}"
+        SHELL_RC=""
+        if [ -f "$HOME/.bashrc" ]; then
+            SHELL_RC="$HOME/.bashrc"
+        elif [ -f "$HOME/.zshrc" ]; then
+            SHELL_RC="$HOME/.zshrc"
         fi
-    fi
-fi
+
+        if [ -n "$SHELL_RC" ]; then
+            if ! grep -q "$INSTALL_PATH" "$SHELL_RC"; then
+                echo "export PATH=\"$INSTALL_PATH:\$PATH\"" >> "$SHELL_RC"
+                printf "${BLUE}Added to $SHELL_RC${NC}\n"
+            fi
+        fi
+        ;;
+esac
 
 echo ""
-echo -e "${GREEN}Installation complete!${NC}"
+printf "${GREEN}Installation complete!${NC}\n"
 echo ""
 echo "Usage:"
 echo "  dockerstrator"
