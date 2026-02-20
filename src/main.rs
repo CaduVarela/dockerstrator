@@ -1,4 +1,6 @@
 use colored::*;
+use crossterm::event::{read, Event, KeyCode};
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use inquire::{Confirm, MultiSelect, Select};
 use std::process::Command;
 use std::{fs, path::PathBuf};
@@ -160,21 +162,35 @@ fn select_compose_file(files: &[String]) -> Option<String> {
 }
 
 fn show_main_menu() -> Option<String> {
-    let options = vec![
-        "Start",
-        "Stop",
-        "Restart",
-        "Status",
-        "Logs",
-        "Cleanup",
-        "Exit",
-    ];
+    println!("\n{}", "Select an action:".bold().cyan());
+    println!("  {} Start services", "[s]".cyan());
+    println!("  {} Stop services", "[p]".cyan());
+    println!("  {} Restart services", "[r]".cyan());
+    println!("  {} Show status", "[t]".cyan());
+    println!("  {} Stream logs", "[l]".cyan());
+    println!("  {} Cleanup volumes", "[c]".cyan());
+    println!("  {} Exit", "[q]".cyan());
+    println!();
 
-    Select::new("What would you like to do?", options)
-        .with_formatter(&|i| i.value.to_string())
-        .prompt()
-        .ok()
-        .map(|s| s.to_string())
+    let _ = enable_raw_mode();
+
+    let result = loop {
+        if let Ok(Event::Key(key)) = read() {
+            match key.code {
+                KeyCode::Char('s') | KeyCode::Char('S') => break Some("Start".to_string()),
+                KeyCode::Char('p') | KeyCode::Char('P') => break Some("Stop".to_string()),
+                KeyCode::Char('r') | KeyCode::Char('R') => break Some("Restart".to_string()),
+                KeyCode::Char('t') | KeyCode::Char('T') => break Some("Status".to_string()),
+                KeyCode::Char('l') | KeyCode::Char('L') => break Some("Logs".to_string()),
+                KeyCode::Char('c') | KeyCode::Char('C') => break Some("Cleanup".to_string()),
+                KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => break None,
+                _ => continue,
+            }
+        }
+    };
+
+    let _ = disable_raw_mode();
+    result
 }
 
 fn select_services(services: &[Service]) -> Vec<Service> {
