@@ -205,8 +205,6 @@ fn start_services(services: &[Service]) {
     let selected = select_services(services);
 
     if selected.is_empty() {
-        println!("{}\n", "No services selected".red());
-        pause();
         return;
     }
 
@@ -226,7 +224,6 @@ fn start_services(services: &[Service]) {
     }
 
     println!("\n{}\n", format!("{}/{} services started", success_count, selected.len()).green());
-    pause();
 }
 
 fn stop_services(services: &[Service]) {
@@ -264,8 +261,6 @@ fn restart_services(services: &[Service]) {
     let selected = select_services(services);
 
     if selected.is_empty() {
-        println!("{}\n", "No services selected".red());
-        pause();
         return;
     }
 
@@ -284,7 +279,6 @@ fn restart_services(services: &[Service]) {
     }
 
     println!("\n{}\n", format!("{}/{} services restarted", success_count, selected.len()).green());
-    pause();
 }
 
 fn show_status(services: &[Service]) {
@@ -394,8 +388,6 @@ fn cleanup_data(services: &[Service]) {
     let selected = select_services(services);
 
     if selected.is_empty() {
-        println!("{}\n", "No services selected".red());
-        pause();
         return;
     }
 
