@@ -55,7 +55,7 @@ mkdir -p "$INSTALL_PATH"
 RELEASE_URL="https://github.com/$REPO_OWNER/$REPO_NAME/releases/latest/download/$BINARY_NAME"
 
 echo -e "${BLUE}Downloading from: $RELEASE_URL${NC}"
-if ! command -v curl &> /dev/null; then
+if ! command -v curl >/dev/null 2>&1; then
     echo -e "${RED}curl is required but not installed${NC}"
     exit 1
 fi
