@@ -44,7 +44,7 @@ Run `dockerstrator` from this directory and select which services to manage.
 
 ```bash
 git clone https://github.com/caduvarela/dockerstrator.git
-cd dockerstrator/orchestrator
+cd dockerstrator
 cargo build --release
 cp target/release/dockerstrator ~/.local/bin/
 ```
