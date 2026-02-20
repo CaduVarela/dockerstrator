@@ -1,0 +1,12 @@
+[package]
+name = "dockerstrator"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "dockerstrator"
+path = "src/main.rs"
+
+[dependencies]
+inquire = "0.7"
+colored = "2.1"
