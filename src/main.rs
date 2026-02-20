@@ -7,6 +7,7 @@ use std::{fs, path::PathBuf};
 struct Service {
     name: String,
     path: PathBuf,
+    compose_file: String,
 }
 
 fn main() {
@@ -57,6 +58,7 @@ fn find_services() -> Vec<Service> {
                         services.push(Service {
                             name: service_name.to_string(),
                             path,
+                            compose_file: "docker-compose.yml".to_string(),
                         });
                     }
                 }
@@ -125,7 +127,7 @@ fn start_services(services: &[Service]) {
     for service in &selected {
         print!("  {} ... ", service.name.cyan());
 
-        if run_docker_compose(&service.path, &["up", "-d"]) {
+        if run_docker_compose(service, &["up", "-d"]) {
             println!("{}", "OK".green());
             success_count += 1;
         } else {
@@ -149,7 +151,7 @@ fn stop_all_services(services: &[Service]) {
 
         for service in services {
             print!("  {} ... ", service.name.cyan());
-            if run_docker_compose(&service.path, &["down"]) {
+            if run_docker_compose(service, &["down"]) {
                 println!("{}", "OK".green());
                 success_count += 1;
             } else {
@@ -178,7 +180,7 @@ fn restart_services(services: &[Service]) {
 
     for service in &selected {
         print!("  {} ... ", service.name.cyan());
-        if run_docker_compose(&service.path, &["restart"]) {
+        if run_docker_compose(service, &["restart"]) {
             println!("{}", "OK".green());
             success_count += 1;
         } else {
@@ -195,7 +197,7 @@ fn show_status(services: &[Service]) {
 
     for service in services {
         println!("{}", format!("{}", service.name).cyan().bold());
-        run_docker_compose(&service.path, &["ps"]);
+        run_docker_compose(service, &["ps"]);
         println!();
     }
 
@@ -214,11 +216,11 @@ fn show_logs(services: &[Service]) {
 
         if selected == "All" {
             for service in services {
-                run_docker_compose(&service.path, &["logs", "-f"]);
+                run_docker_compose(service, &["logs", "-f"]);
             }
         } else {
             if let Some(service) = services.iter().find(|s| s.name == selected) {
-                run_docker_compose(&service.path, &["logs", "-f"]);
+                run_docker_compose(service, &["logs", "-f"]);
             }
         }
     }
@@ -250,7 +252,7 @@ fn cleanup_data(services: &[Service]) {
 
         for service in &selected {
             print!("  {} ... ", service.name.cyan());
-            if run_docker_compose(&service.path, &["down", "-v"]) {
+            if run_docker_compose(service, &["down", "-v"]) {
                 println!("{}", "OK".green());
                 success_count += 1;
             } else {
@@ -264,17 +266,22 @@ fn cleanup_data(services: &[Service]) {
     pause();
 }
 
-fn run_docker_compose(path: &PathBuf, args: &[&str]) -> bool {
+fn run_docker_compose(service: &Service, args: &[&str]) -> bool {
     let mut cmd = Command::new("docker-compose");
-    cmd.current_dir(path).args(args);
+    cmd.current_dir(&service.path)
+        .arg("-f")
+        .arg(&service.compose_file)
+        .args(args);
 
     match cmd.status() {
         Ok(status) => status.success(),
         Err(_) => {
             // Try newer docker compose syntax
             let mut cmd = Command::new("docker");
-            cmd.current_dir(path)
+            cmd.current_dir(&service.path)
                 .arg("compose")
+                .arg("-f")
+                .arg(&service.compose_file)
                 .args(args);
 
             cmd.status().map(|s| s.success()).unwrap_or(false)
