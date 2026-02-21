@@ -87,10 +87,10 @@ fn main() {
         return;
     }
 
-    println!("\n{}\n", "Docker Services Orchestrator".bold().cyan());
-    println!("Services found: {}\n", services.len());
-
     loop {
+        clear_screen();
+        println!("\n{}\n", "Docker Services Orchestrator".bold().cyan());
+        println!("Services found: {}\n", services.len());
         match show_main_menu() {
             Some(choice) => match choice.as_str() {
                 "Start" => start_services(&services),
