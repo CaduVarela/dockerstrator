@@ -584,6 +584,7 @@ fn run_docker_compose(service: &Service, args: &[&str]) -> bool {
 
 fn show_settings(config: &mut Config) {
     loop {
+        clear_screen();
         println!("\n{}", "Current configuration:".bold());
         println!("  Max search depth: {}",
             config.max_depth
