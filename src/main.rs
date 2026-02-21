@@ -2,6 +2,7 @@ use colored::*;
 use crossterm::event::{read, Event, KeyCode};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use inquire::{Confirm, MultiSelect, Select};
+use serde::{Deserialize, Serialize};
 use std::process::Command;
 use std::{fs, path::PathBuf};
 
@@ -10,6 +11,56 @@ struct Service {
     name: String,
     path: PathBuf,
     compose_file: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Config {
+    max_depth: Option<usize>,
+    excluded_dirs: Vec<String>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            max_depth: None,
+            excluded_dirs: Vec::new(),
+        }
+    }
+}
+
+fn get_config_path() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(home)
+        .join(".config")
+        .join("dockerstrator")
+        .join("config.toml")
+}
+
+fn load_config() -> Config {
+    let config_path = get_config_path();
+
+    if config_path.exists() {
+        if let Ok(contents) = fs::read_to_string(&config_path) {
+            if let Ok(config) = toml::from_str(&contents) {
+                return config;
+            }
+        }
+    }
+
+    Config::default()
+}
+
+fn save_config(config: &Config) -> Result<(), String> {
+    let config_path = get_config_path();
+
+    if let Some(parent) = config_path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+
+    let contents = toml::to_string_pretty(config).map_err(|e| e.to_string())?;
+    fs::write(&config_path, contents).map_err(|e| e.to_string())?;
+
+    Ok(())
 }
 
 fn main() {
@@ -25,7 +76,8 @@ fn main() {
         return;
     }
 
-    let services = find_services();
+    let mut config = load_config();
+    let services = find_services(&config);
 
     if services.is_empty() {
         println!("{}", "No docker-compose.yml found in this directory structure.".red());
@@ -44,6 +96,7 @@ fn main() {
                 "Status" => show_status(&services),
                 "Logs" => show_logs(&services),
                 "Cleanup" => cleanup_data(&services),
+                "Settings" => show_settings(&mut config),
                 "Exit" => {
                     println!("{}\n", "Goodbye!".green());
                     break;
@@ -58,7 +111,7 @@ fn main() {
     }
 }
 
-fn find_services() -> Vec<Service> {
+fn find_services(config: &Config) -> Vec<Service> {
     let current_dir = std::env::current_dir().unwrap();
     let mut services = Vec::new();
     let mut visited = std::collections::HashSet::new();
@@ -77,16 +130,29 @@ fn find_services() -> Vec<Service> {
 
     // Then scan subdirectories
     visited.insert(current_dir.clone());
-    scan_directory(&current_dir, &mut services, &mut visited);
+    scan_directory(&current_dir, &mut services, &mut visited, config, 0);
     services.sort_by(|a, b| a.name.cmp(&b.name));
     services
 }
 
-fn scan_directory(dir: &PathBuf, services: &mut Vec<Service>, visited: &mut std::collections::HashSet<PathBuf>) {
+fn scan_directory(
+    dir: &PathBuf,
+    services: &mut Vec<Service>,
+    visited: &mut std::collections::HashSet<PathBuf>,
+    config: &Config,
+    depth: usize,
+) {
     if visited.contains(dir) {
         return;
     }
     visited.insert(dir.clone());
+
+    // Check max depth
+    if let Some(max_depth) = config.max_depth {
+        if depth >= max_depth {
+            return;
+        }
+    }
 
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
@@ -94,7 +160,13 @@ fn scan_directory(dir: &PathBuf, services: &mut Vec<Service>, visited: &mut std:
 
             // Skip hidden directories and common non-service directories
             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                if name.starts_with('.') || matches!(name, "target" | "node_modules") {
+                // Check hardcoded exclusions
+                if name.starts_with('.') || matches!(name, "target" | "node_modules" | "vendor") {
+                    continue;
+                }
+
+                // Check user-configured exclusions
+                if config.excluded_dirs.contains(&name.to_string()) {
                     continue;
                 }
             }
@@ -115,7 +187,7 @@ fn scan_directory(dir: &PathBuf, services: &mut Vec<Service>, visited: &mut std:
                     }
                 } else {
                     // No compose files, recurse deeper
-                    scan_directory(&path, services, visited);
+                    scan_directory(&path, services, visited, config, depth + 1);
                 }
             }
         }
@@ -169,6 +241,7 @@ fn show_main_menu() -> Option<String> {
     println!("  {} Show status", "[t]".cyan());
     println!("  {} Stream logs", "[l]".cyan());
     println!("  {} Cleanup volumes", "[c]".cyan());
+    println!("  {} Settings", "[g]".cyan());
     println!("  {} Exit", "[q]".cyan());
     println!();
 
@@ -183,6 +256,7 @@ fn show_main_menu() -> Option<String> {
                 KeyCode::Char('t') | KeyCode::Char('T') => break Some("Status".to_string()),
                 KeyCode::Char('l') | KeyCode::Char('L') => break Some("Logs".to_string()),
                 KeyCode::Char('c') | KeyCode::Char('C') => break Some("Cleanup".to_string()),
+                KeyCode::Char('g') | KeyCode::Char('G') => break Some("Settings".to_string()),
                 KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => break None,
                 _ => continue,
             }
@@ -454,6 +528,183 @@ fn run_docker_compose(service: &Service, args: &[&str]) -> bool {
                 .args(args);
 
             cmd.status().map(|s| s.success()).unwrap_or(false)
+        }
+    }
+}
+
+fn show_settings(config: &mut Config) {
+    loop {
+        println!("\n{}", "Settings".bold().cyan());
+        println!();
+        println!("Current configuration:");
+        println!("  Max search depth: {}",
+            config.max_depth
+                .map(|d| d.to_string())
+                .unwrap_or_else(|| "Unlimited".to_string())
+                .yellow()
+        );
+        println!("  Excluded dirs: {}",
+            if config.excluded_dirs.is_empty() {
+                "None".to_string()
+            } else {
+                config.excluded_dirs.join(", ")
+            }.yellow()
+        );
+        println!();
+        println!("  {} Set max search depth", "[d]".cyan());
+        println!("  {} Manage excluded directories", "[e]".cyan());
+        println!("  {} Reset to defaults", "[r]".cyan());
+        println!("  {} Back to main menu", "[b]".cyan());
+        println!();
+
+        let _ = enable_raw_mode();
+
+        let choice = loop {
+            if let Ok(Event::Key(key)) = read() {
+                match key.code {
+                    KeyCode::Char('d') | KeyCode::Char('D') => break Some('d'),
+                    KeyCode::Char('e') | KeyCode::Char('E') => break Some('e'),
+                    KeyCode::Char('r') | KeyCode::Char('R') => break Some('r'),
+                    KeyCode::Char('b') | KeyCode::Char('B') | KeyCode::Esc => break None,
+                    _ => continue,
+                }
+            }
+        };
+
+        let _ = disable_raw_mode();
+
+        match choice {
+            Some('d') => {
+                println!();
+                if let Ok(input) = inquire::Text::new("Max search depth (leave empty for unlimited):").prompt() {
+                    if input.trim().is_empty() {
+                        config.max_depth = None;
+                        println!("{}", "Max depth set to unlimited".green());
+                    } else if let Ok(depth) = input.parse::<usize>() {
+                        config.max_depth = Some(depth);
+                        println!("{}", format!("Max depth set to {}", depth).green());
+                    } else {
+                        println!("{}", "Invalid number!".red());
+                    }
+                }
+                if save_config(config).is_ok() {
+                    println!("{}", "Configuration saved!".green());
+                }
+                pause();
+            }
+            Some('e') => {
+                manage_excluded_dirs(config);
+            }
+            Some('r') => {
+                if Confirm::new("Reset all settings to defaults?")
+                    .with_default(false)
+                    .prompt()
+                    .unwrap_or(false)
+                {
+                    *config = Config::default();
+                    if save_config(config).is_ok() {
+                        println!("{}", "Settings reset to defaults!".green());
+                    }
+                    pause();
+                }
+            }
+            None => break,
+        }
+    }
+}
+
+fn manage_excluded_dirs(config: &mut Config) {
+    loop {
+        println!("\n{}", "Manage Excluded Directories".bold().cyan());
+        println!();
+        println!("Currently excluded: {}",
+            if config.excluded_dirs.is_empty() {
+                "None".to_string()
+            } else {
+                config.excluded_dirs.join(", ")
+            }.yellow()
+        );
+        println!();
+        println!("Note: {}, {}, and {} are always excluded",
+            "hidden dirs".bright_black(),
+            "target, node_modules, vendor".bright_black(),
+            "compose file dirs".bright_black()
+        );
+        println!();
+        println!("  {} Add directory to exclude", "[a]".cyan());
+        println!("  {} Remove directory from excludes", "[r]".cyan());
+        println!("  {} Clear all excluded directories", "[c]".cyan());
+        println!("  {} Back", "[b]".cyan());
+        println!();
+
+        let _ = enable_raw_mode();
+
+        let choice = loop {
+            if let Ok(Event::Key(key)) = read() {
+                match key.code {
+                    KeyCode::Char('a') | KeyCode::Char('A') => break Some('a'),
+                    KeyCode::Char('r') | KeyCode::Char('R') => break Some('r'),
+                    KeyCode::Char('c') | KeyCode::Char('C') => break Some('c'),
+                    KeyCode::Char('b') | KeyCode::Char('B') | KeyCode::Esc => break None,
+                    _ => continue,
+                }
+            }
+        };
+
+        let _ = disable_raw_mode();
+
+        match choice {
+            Some('a') => {
+                println!();
+                if let Ok(dir_name) = inquire::Text::new("Directory name to exclude:").prompt() {
+                    let dir_name = dir_name.trim().to_string();
+                    if !dir_name.is_empty() && !config.excluded_dirs.contains(&dir_name) {
+                        config.excluded_dirs.push(dir_name.clone());
+                        if save_config(config).is_ok() {
+                            println!("{}", format!("'{}' added to exclusions!", dir_name).green());
+                        }
+                    } else if config.excluded_dirs.contains(&dir_name) {
+                        println!("{}", "Directory already excluded!".yellow());
+                    }
+                    pause();
+                }
+            }
+            Some('r') => {
+                if config.excluded_dirs.is_empty() {
+                    println!("\n{}", "No excluded directories to remove!".yellow());
+                    pause();
+                    continue;
+                }
+
+                println!();
+                if let Ok(selected) = Select::new("Select directory to remove:", config.excluded_dirs.clone()).prompt() {
+                    config.excluded_dirs.retain(|d| d != &selected);
+                    if save_config(config).is_ok() {
+                        println!("{}", format!("'{}' removed from exclusions!", selected).green());
+                    }
+                    pause();
+                }
+            }
+            Some('c') => {
+                if config.excluded_dirs.is_empty() {
+                    println!("\n{}", "No excluded directories to clear!".yellow());
+                    pause();
+                    continue;
+                }
+
+                if Confirm::new("Clear all excluded directories?")
+                    .with_default(false)
+                    .prompt()
+                    .unwrap_or(false)
+                {
+                    config.excluded_dirs.clear();
+                    if save_config(config).is_ok() {
+                        println!("{}", "All exclusions cleared!".green());
+                    }
+                    pause();
+                }
+            }
+            None => break,
         }
     }
 }
