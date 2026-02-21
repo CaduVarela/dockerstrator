@@ -1,7 +1,10 @@
 use colored::*;
+use crossterm::cursor::MoveUp;
 use crossterm::event::{read, Event, KeyCode};
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
+use crossterm::execute;
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType};
 use inquire::{Confirm, MultiSelect, Select};
+use std::io::stdout;
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 use std::{fs, path::PathBuf};
@@ -129,7 +132,6 @@ fn find_services(config: &Config) -> Vec<Service> {
     }
 
     // Then scan subdirectories
-    visited.insert(current_dir.clone());
     scan_directory(&current_dir, &mut services, &mut visited, config, 0);
     services.sort_by(|a, b| a.name.cmp(&b.name));
     services
@@ -233,38 +235,82 @@ fn select_compose_file(files: &[String]) -> Option<String> {
     }
 }
 
-fn show_main_menu() -> Option<String> {
-    println!("\n{}", "Select an action:".bold().cyan());
-    println!("  {} Start services", "[s]".cyan());
-    println!("  {} Stop services", "[p]".cyan());
-    println!("  {} Restart services", "[r]".cyan());
-    println!("  {} Show status", "[t]".cyan());
-    println!("  {} Stream logs", "[l]".cyan());
-    println!("  {} Cleanup volumes", "[c]".cyan());
-    println!("  {} Settings", "[g]".cyan());
-    println!("  {} Exit", "[q]".cyan());
+fn interactive_menu(title: &str, items: &[(&str, &str)]) -> Option<char> {
+    let n = items.len();
+    let menu_lines = (n + 2) as u16; // title + n items + blank line
+
+    let draw = |cur: usize| {
+        println!("{}", title.bold().cyan());
+        for (i, (key, label)) in items.iter().enumerate() {
+            if i == cur {
+                println!("  {} {}", format!("[{}]", key).cyan(), label.bold());
+            } else {
+                println!("  {} {}", format!("[{}]", key).cyan(), label);
+            }
+        }
+        println!();
+    };
+
+    let mut cursor = 0usize;
     println!();
+    draw(cursor);
 
     let _ = enable_raw_mode();
-
     let result = loop {
         if let Ok(Event::Key(key)) = read() {
             match key.code {
-                KeyCode::Char('s') | KeyCode::Char('S') => break Some("Start".to_string()),
-                KeyCode::Char('p') | KeyCode::Char('P') => break Some("Stop".to_string()),
-                KeyCode::Char('r') | KeyCode::Char('R') => break Some("Restart".to_string()),
-                KeyCode::Char('t') | KeyCode::Char('T') => break Some("Status".to_string()),
-                KeyCode::Char('l') | KeyCode::Char('L') => break Some("Logs".to_string()),
-                KeyCode::Char('c') | KeyCode::Char('C') => break Some("Cleanup".to_string()),
-                KeyCode::Char('g') | KeyCode::Char('G') => break Some("Settings".to_string()),
-                KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => break None,
-                _ => continue,
+                KeyCode::Up => {
+                    cursor = if cursor == 0 { n - 1 } else { cursor - 1 };
+                    let _ = disable_raw_mode();
+                    let _ = execute!(stdout(), MoveUp(menu_lines), Clear(ClearType::FromCursorDown));
+                    draw(cursor);
+                    let _ = enable_raw_mode();
+                }
+                KeyCode::Down => {
+                    cursor = (cursor + 1) % n;
+                    let _ = disable_raw_mode();
+                    let _ = execute!(stdout(), MoveUp(menu_lines), Clear(ClearType::FromCursorDown));
+                    draw(cursor);
+                    let _ = enable_raw_mode();
+                }
+                KeyCode::Enter => {
+                    break Some(items[cursor].0.chars().next().unwrap());
+                }
+                KeyCode::Char(c) => {
+                    let c = c.to_ascii_lowercase();
+                    if items.iter().any(|(k, _)| k.chars().next() == Some(c)) {
+                        break Some(c);
+                    }
+                }
+                KeyCode::Esc => break None,
+                _ => {}
             }
         }
     };
-
     let _ = disable_raw_mode();
     result
+}
+
+fn show_main_menu() -> Option<String> {
+    match interactive_menu("Select an action:", &[
+        ("s", "Start services"),
+        ("p", "Stop services"),
+        ("r", "Restart services"),
+        ("t", "Show status"),
+        ("l", "Stream logs"),
+        ("c", "Cleanup volumes"),
+        ("g", "Settings"),
+        ("q", "Exit"),
+    ]) {
+        Some('s') => Some("Start".to_string()),
+        Some('p') => Some("Stop".to_string()),
+        Some('r') => Some("Restart".to_string()),
+        Some('t') => Some("Status".to_string()),
+        Some('l') => Some("Logs".to_string()),
+        Some('c') => Some("Cleanup".to_string()),
+        Some('g') => Some("Settings".to_string()),
+        _ => None,
+    }
 }
 
 fn select_services(services: &[Service]) -> Vec<Service> {
@@ -534,9 +580,7 @@ fn run_docker_compose(service: &Service, args: &[&str]) -> bool {
 
 fn show_settings(config: &mut Config) {
     loop {
-        println!("\n{}", "Settings".bold().cyan());
-        println!();
-        println!("Current configuration:");
+        println!("\n{}", "Current configuration:".bold());
         println!("  Max search depth: {}",
             config.max_depth
                 .map(|d| d.to_string())
@@ -550,30 +594,13 @@ fn show_settings(config: &mut Config) {
                 config.excluded_dirs.join(", ")
             }.yellow()
         );
-        println!();
-        println!("  {} Set max search depth", "[d]".cyan());
-        println!("  {} Manage excluded directories", "[e]".cyan());
-        println!("  {} Reset to defaults", "[r]".cyan());
-        println!("  {} Back to main menu", "[b]".cyan());
-        println!();
 
-        let _ = enable_raw_mode();
-
-        let choice = loop {
-            if let Ok(Event::Key(key)) = read() {
-                match key.code {
-                    KeyCode::Char('d') | KeyCode::Char('D') => break Some('d'),
-                    KeyCode::Char('e') | KeyCode::Char('E') => break Some('e'),
-                    KeyCode::Char('r') | KeyCode::Char('R') => break Some('r'),
-                    KeyCode::Char('b') | KeyCode::Char('B') | KeyCode::Esc => break None,
-                    _ => continue,
-                }
-            }
-        };
-
-        let _ = disable_raw_mode();
-
-        match choice {
+        match interactive_menu("Settings", &[
+            ("d", "Set max search depth"),
+            ("e", "Manage excluded directories"),
+            ("r", "Reset to defaults"),
+            ("b", "Back"),
+        ]) {
             Some('d') => {
                 println!();
                 if let Ok(input) = inquire::Text::new("Max search depth (leave empty for unlimited):").prompt() {
@@ -608,52 +635,29 @@ fn show_settings(config: &mut Config) {
                     pause();
                 }
             }
-            None => break,
+            _ => break,
         }
     }
 }
 
 fn manage_excluded_dirs(config: &mut Config) {
     loop {
-        println!("\n{}", "Manage Excluded Directories".bold().cyan());
-        println!();
-        println!("Currently excluded: {}",
-            if config.excluded_dirs.is_empty() {
-                "None".to_string()
-            } else {
-                config.excluded_dirs.join(", ")
-            }.yellow()
-        );
-        println!();
-        println!("Note: {}, {}, and {} are always excluded",
-            "hidden dirs".bright_black(),
-            "target, node_modules, vendor".bright_black(),
-            "compose file dirs".bright_black()
-        );
-        println!();
-        println!("  {} Add directory to exclude", "[a]".cyan());
-        println!("  {} Remove directory from excludes", "[r]".cyan());
-        println!("  {} Clear all excluded directories", "[c]".cyan());
-        println!("  {} Back", "[b]".cyan());
-        println!();
-
-        let _ = enable_raw_mode();
-
-        let choice = loop {
-            if let Ok(Event::Key(key)) = read() {
-                match key.code {
-                    KeyCode::Char('a') | KeyCode::Char('A') => break Some('a'),
-                    KeyCode::Char('r') | KeyCode::Char('R') => break Some('r'),
-                    KeyCode::Char('c') | KeyCode::Char('C') => break Some('c'),
-                    KeyCode::Char('b') | KeyCode::Char('B') | KeyCode::Esc => break None,
-                    _ => continue,
-                }
+        println!("\n{}", "Currently excluded:".bold());
+        if config.excluded_dirs.is_empty() {
+            println!("  {}", "None".yellow());
+        } else {
+            for dir in &config.excluded_dirs {
+                println!("  - {}", dir.yellow());
             }
-        };
+        }
+        println!("{}", "(always excluded: hidden dirs, target, node_modules, vendor)".bright_black());
 
-        let _ = disable_raw_mode();
-
-        match choice {
+        match interactive_menu("Manage Excluded Directories", &[
+            ("a", "Add directory"),
+            ("r", "Remove directory"),
+            ("c", "Clear all"),
+            ("b", "Back"),
+        ]) {
             Some('a') => {
                 println!();
                 if let Ok(dir_name) = inquire::Text::new("Directory name to exclude:").prompt() {
@@ -704,7 +708,7 @@ fn manage_excluded_dirs(config: &mut Config) {
                     pause();
                 }
             }
-            None => break,
+            _ => break,
         }
     }
 }
