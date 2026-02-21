@@ -7,6 +7,7 @@ use inquire::{Confirm, MultiSelect, Select};
 use std::io::{stdout, Write};
 use serde::{Deserialize, Serialize};
 use std::process::Command;
+use std::thread;
 use std::{fs, path::PathBuf};
 
 #[derive(Clone, Debug)]
@@ -381,8 +382,9 @@ fn start_services(services: &[Service], config: &Config) {
 fn stop_services(services: &[Service], config: &Config) {
     print!("{}", "Checking service status...".bright_black());
     let _ = stdout().flush();
+    let statuses = check_all_statuses(services, config.legacy_compose);
     let running: Vec<Service> = services.iter()
-        .filter(|s| get_service_status(s, config.legacy_compose))
+        .filter(|s| statuses.iter().any(|(name, up)| name == &s.name && *up))
         .cloned()
         .collect();
     println!();
@@ -451,18 +453,27 @@ fn show_status(services: &[Service], config: &Config) {
     clear_screen();
     println!("\n{}\n", "Services Status:".bold().cyan());
 
-    for service in services {
-        let status = get_service_status(service, config.legacy_compose);
-        let status_text = if status {
-            "UP".green()
-        } else {
-            "DOWN".red()
-        };
-        println!("  {}: {}", service.name.cyan(), status_text);
+    for (name, up) in check_all_statuses(services, config.legacy_compose) {
+        let status_text = if up { "UP".green() } else { "DOWN".red() };
+        println!("  {}: {}", name.cyan(), status_text);
     }
 
     println!();
     pause();
+}
+
+fn check_all_statuses(services: &[Service], legacy: bool) -> Vec<(String, bool)> {
+    let handles: Vec<_> = services.iter().map(|service| {
+        let service = service.clone();
+        thread::spawn(move || {
+            let up = get_service_status(&service, legacy);
+            (service.name, up)
+        })
+    }).collect();
+
+    handles.into_iter()
+        .map(|h| h.join().unwrap_or_else(|_| ("?".to_string(), false)))
+        .collect()
 }
 
 fn build_compose_cmd(service: &Service, legacy: bool) -> Command {
