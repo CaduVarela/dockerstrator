@@ -1,8 +1,8 @@
 use colored::*;
-use crossterm::cursor::{MoveTo, MoveUp};
+use crossterm::cursor::{MoveTo};
 use crossterm::event::{read, Event, KeyCode};
 use crossterm::execute;
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType};
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen};
 use inquire::{Confirm, MultiSelect, Select};
 use std::io::{stdout, Write};
 use serde::{Deserialize, Serialize};
@@ -87,6 +87,10 @@ fn main() {
         return;
     }
 
+    // Enter alternate screen to avoid polluting terminal history
+    let _ = enable_raw_mode();
+    let _ = execute!(stdout(), EnterAlternateScreen);
+
     loop {
         clear_screen();
         println!("\n{}\n", "Docker Services Orchestrator".bold().cyan());
@@ -112,6 +116,10 @@ fn main() {
             }
         }
     }
+
+    // Exit alternate screen and restore terminal
+    let _ = disable_raw_mode();
+    let _ = execute!(stdout(), LeaveAlternateScreen);
 }
 
 fn find_services(config: &Config) -> Vec<Service> {
@@ -241,7 +249,6 @@ fn clear_screen() {
 
 fn interactive_menu(title: &str, items: &[(&str, &str)]) -> Option<char> {
     let n = items.len();
-    let menu_lines = (n + 2) as u16; // title + n items + blank line
 
     let draw = |cur: usize| {
         println!("{}", title.bold().cyan());
@@ -253,6 +260,7 @@ fn interactive_menu(title: &str, items: &[(&str, &str)]) -> Option<char> {
             }
         }
         println!();
+        let _ = stdout().flush();
     };
 
     let mut cursor = 0usize;
@@ -266,32 +274,36 @@ fn interactive_menu(title: &str, items: &[(&str, &str)]) -> Option<char> {
                 KeyCode::Up => {
                     cursor = if cursor == 0 { n - 1 } else { cursor - 1 };
                     let _ = disable_raw_mode();
-                    let _ = execute!(stdout(), MoveUp(menu_lines), Clear(ClearType::FromCursorDown));
+                    clear_screen();
                     draw(cursor);
                     let _ = enable_raw_mode();
                 }
                 KeyCode::Down => {
                     cursor = (cursor + 1) % n;
                     let _ = disable_raw_mode();
-                    let _ = execute!(stdout(), MoveUp(menu_lines), Clear(ClearType::FromCursorDown));
+                    clear_screen();
                     draw(cursor);
                     let _ = enable_raw_mode();
                 }
                 KeyCode::Enter => {
+                    let _ = disable_raw_mode();
                     break Some(items[cursor].0.chars().next().unwrap());
                 }
                 KeyCode::Char(c) => {
                     let c = c.to_ascii_lowercase();
                     if items.iter().any(|(k, _)| k.chars().next() == Some(c)) {
+                        let _ = disable_raw_mode();
                         break Some(c);
                     }
                 }
-                KeyCode::Esc => break None,
+                KeyCode::Esc => {
+                    let _ = disable_raw_mode();
+                    break None;
+                }
                 _ => {}
             }
         }
     };
-    let _ = disable_raw_mode();
     result
 }
 
