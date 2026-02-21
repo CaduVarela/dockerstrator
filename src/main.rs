@@ -600,7 +600,7 @@ fn show_settings(config: &mut Config) {
             ("e", "Manage excluded directories"),
             ("c", "Toggle docker command (docker compose / docker-compose)"),
             ("r", "Reset to defaults"),
-            ("b", "Back"),
+            ("q", "Back"),
         ]) {
             Some('d') => {
                 println!();
@@ -666,7 +666,7 @@ fn manage_excluded_dirs(config: &mut Config) {
             ("a", "Add directory"),
             ("r", "Remove directory"),
             ("c", "Clear all"),
-            ("b", "Back"),
+            ("q", "Back"),
         ]) {
             Some('a') => {
                 println!();
