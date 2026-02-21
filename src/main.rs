@@ -367,7 +367,21 @@ fn start_services(services: &[Service]) {
 }
 
 fn stop_services(services: &[Service]) {
-    let selected = select_services(services);
+    print!("{}", "Checking service status...".bright_black());
+    let _ = stdout().flush();
+    let running: Vec<Service> = services.iter()
+        .filter(|s| get_service_status(s))
+        .cloned()
+        .collect();
+    println!();
+
+    if running.is_empty() {
+        println!("{}", "\nNo services are currently running.".yellow());
+        pause();
+        return;
+    }
+
+    let selected = select_services(&running);
 
     if selected.is_empty() {
         return;
