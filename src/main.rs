@@ -422,6 +422,7 @@ fn restart_services(services: &[Service]) {
 }
 
 fn show_status(services: &[Service]) {
+    clear_screen();
     println!("\n{}\n", "Services Status:".bold().cyan());
 
     for service in services {
@@ -647,6 +648,7 @@ fn show_settings(config: &mut Config) {
 
 fn manage_excluded_dirs(config: &mut Config) {
     loop {
+        clear_screen();
         println!("\n{}", "Currently excluded:".bold());
         if config.excluded_dirs.is_empty() {
             println!("  {}", "None".yellow());
