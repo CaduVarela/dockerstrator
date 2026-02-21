@@ -1,10 +1,10 @@
 use colored::*;
-use crossterm::cursor::MoveUp;
+use crossterm::cursor::{MoveTo, MoveUp};
 use crossterm::event::{read, Event, KeyCode};
 use crossterm::execute;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType};
 use inquire::{Confirm, MultiSelect, Select};
-use std::io::stdout;
+use std::io::{stdout, Write};
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 use std::{fs, path::PathBuf};
@@ -233,6 +233,10 @@ fn select_compose_file(files: &[String]) -> Option<String> {
         Ok(selected) => Some(selected),
         Err(_) => None,
     }
+}
+
+fn clear_screen() {
+    let _ = execute!(stdout(), Clear(ClearType::All), MoveTo(0, 0));
 }
 
 fn interactive_menu(title: &str, items: &[(&str, &str)]) -> Option<char> {
