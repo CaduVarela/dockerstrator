@@ -25,7 +25,7 @@ struct Config {
 impl Default for Config {
     fn default() -> Self {
         Config {
-            max_depth: None,
+            max_depth: Some(7),
             excluded_dirs: Vec::new(),
         }
     }
