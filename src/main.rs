@@ -249,6 +249,8 @@ fn interactive_menu(title: &str, items: &[(&str, &str)]) -> Option<char> {
     let n = items.len();
 
     let draw = |cur: usize| {
+        // Clear only the menu area (skip header)
+        let _ = execute!(stdout(), MoveTo(0, 5), Clear(ClearType::FromCursorDown));
         println!("{}", title.bold().cyan());
         for (i, (key, label)) in items.iter().enumerate() {
             if i == cur {
@@ -271,14 +273,12 @@ fn interactive_menu(title: &str, items: &[(&str, &str)]) -> Option<char> {
                 KeyCode::Up => {
                     cursor = if cursor == 0 { n - 1 } else { cursor - 1 };
                     let _ = disable_raw_mode();
-                    clear_screen();
                     draw(cursor);
                     let _ = enable_raw_mode();
                 }
                 KeyCode::Down => {
                     cursor = (cursor + 1) % n;
                     let _ = disable_raw_mode();
-                    clear_screen();
                     draw(cursor);
                     let _ = enable_raw_mode();
                 }
