@@ -20,6 +20,8 @@ struct Service {
 struct Config {
     max_depth: Option<usize>,
     excluded_dirs: Vec<String>,
+    #[serde(default)]
+    legacy_compose: bool,
 }
 
 impl Default for Config {
@@ -27,6 +29,7 @@ impl Default for Config {
         Config {
             max_depth: Some(7),
             excluded_dirs: Vec::new(),
+            legacy_compose: false,
         }
     }
 }
@@ -96,12 +99,12 @@ fn main() {
         println!("Services found: {}\n", services.len());
         match show_main_menu() {
             Some(choice) => match choice.as_str() {
-                "Start" => start_services(&services),
-                "Stop" => stop_services(&services),
-                "Restart" => restart_services(&services),
-                "Status" => show_status(&services),
-                "Logs" => show_logs(&services),
-                "Cleanup" => cleanup_data(&services),
+                "Start" => start_services(&services, &config),
+                "Stop" => stop_services(&services, &config),
+                "Restart" => restart_services(&services, &config),
+                "Status" => show_status(&services, &config),
+                "Logs" => show_logs(&services, &config),
+                "Cleanup" => cleanup_data(&services, &config),
                 "Settings" => show_settings(&mut config),
                 "Exit" => {
                     println!("{}\n", "Goodbye!".green());
@@ -350,7 +353,7 @@ fn select_services(services: &[Service]) -> Vec<Service> {
     }
 }
 
-fn start_services(services: &[Service]) {
+fn start_services(services: &[Service], config: &Config) {
     let selected = select_services(services);
 
     if selected.is_empty() {
@@ -364,7 +367,7 @@ fn start_services(services: &[Service]) {
     for service in &selected {
         print!("  {} ... ", service.name.cyan());
 
-        if run_docker_compose(service, &["up", "-d"]) {
+        if run_docker_compose(service, &["up", "-d"], config.legacy_compose) {
             println!("{}", "OK".green());
             success_count += 1;
         } else {
@@ -375,11 +378,11 @@ fn start_services(services: &[Service]) {
     println!("\n{}\n", format!("{}/{} services started", success_count, selected.len()).green());
 }
 
-fn stop_services(services: &[Service]) {
+fn stop_services(services: &[Service], config: &Config) {
     print!("{}", "Checking service status...".bright_black());
     let _ = stdout().flush();
     let running: Vec<Service> = services.iter()
-        .filter(|s| get_service_status(s))
+        .filter(|s| get_service_status(s, config.legacy_compose))
         .cloned()
         .collect();
     println!();
@@ -407,7 +410,7 @@ fn stop_services(services: &[Service]) {
 
         for service in &selected {
             print!("  {} ... ", service.name.cyan());
-            if run_docker_compose(service, &["down"]) {
+            if run_docker_compose(service, &["down"], config.legacy_compose) {
                 println!("{}", "OK".green());
                 success_count += 1;
             } else {
@@ -420,7 +423,7 @@ fn stop_services(services: &[Service]) {
     }
 }
 
-fn restart_services(services: &[Service]) {
+fn restart_services(services: &[Service], config: &Config) {
     let selected = select_services(services);
 
     if selected.is_empty() {
@@ -433,7 +436,7 @@ fn restart_services(services: &[Service]) {
 
     for service in &selected {
         print!("  {} ... ", service.name.cyan());
-        if run_docker_compose(service, &["restart"]) {
+        if run_docker_compose(service, &["restart"], config.legacy_compose) {
             println!("{}", "OK".green());
             success_count += 1;
         } else {
@@ -444,12 +447,12 @@ fn restart_services(services: &[Service]) {
     println!("\n{}\n", format!("{}/{} services restarted", success_count, selected.len()).green());
 }
 
-fn show_status(services: &[Service]) {
+fn show_status(services: &[Service], config: &Config) {
     clear_screen();
     println!("\n{}\n", "Services Status:".bold().cyan());
 
     for service in services {
-        let status = get_service_status(service);
+        let status = get_service_status(service, config.legacy_compose);
         let status_text = if status {
             "UP".green()
         } else {
@@ -462,34 +465,31 @@ fn show_status(services: &[Service]) {
     pause();
 }
 
-fn get_service_status(service: &Service) -> bool {
-    // Try with docker-compose first
-    let mut cmd = Command::new("docker-compose");
+fn build_compose_cmd(service: &Service, legacy: bool) -> Command {
+    let mut cmd = if legacy {
+        Command::new("docker-compose")
+    } else {
+        let mut cmd = Command::new("docker");
+        cmd.arg("compose");
+        cmd
+    };
     cmd.current_dir(&service.path)
         .arg("-f")
-        .arg(&service.compose_file)
-        .args(&["ps", "-q"]);
+        .arg(&service.compose_file);
+    cmd
+}
 
-    match cmd.output() {
-        Ok(output) => !output.stdout.is_empty(),
-        Err(_) => {
-            // Fallback to docker compose
-            let mut cmd = Command::new("docker");
-            cmd.current_dir(&service.path)
-                .arg("compose")
-                .arg("-f")
-                .arg(&service.compose_file)
-                .args(&["ps", "-q"]);
-
-            match cmd.output() {
-                Ok(output) => !output.stdout.is_empty(),
-                Err(_) => false,
-            }
-        }
+fn get_service_status(service: &Service, legacy: bool) -> bool {
+    let output = build_compose_cmd(service, legacy)
+        .args(&["ps", "-q"])
+        .output();
+    match output {
+        Ok(out) => !out.stdout.is_empty(),
+        Err(_) => false,
     }
 }
 
-fn show_logs(services: &[Service]) {
+fn show_logs(services: &[Service], config: &Config) {
     let service_names: Vec<&str> = services
         .iter()
         .map(|s| s.name.as_str())
@@ -501,40 +501,23 @@ fn show_logs(services: &[Service]) {
 
         if selected == "All" {
             for service in services {
-                stream_logs(service);
+                stream_logs(service, config.legacy_compose);
             }
         } else {
             if let Some(service) = services.iter().find(|s| s.name == selected) {
-                stream_logs(service);
+                stream_logs(service, config.legacy_compose);
             }
         }
     }
 }
 
-fn stream_logs(service: &Service) {
-    let mut cmd = Command::new("docker-compose");
-    cmd.current_dir(&service.path)
-        .arg("-f")
-        .arg(&service.compose_file)
-        .args(&["logs", "-f"]);
-
-    // Try spawning docker-compose
-    let mut child = match cmd.spawn() {
+fn stream_logs(service: &Service, legacy: bool) {
+    let mut child = match build_compose_cmd(service, legacy)
+        .args(&["logs", "-f"])
+        .spawn()
+    {
         Ok(c) => c,
-        Err(_) => {
-            // Fallback to docker compose
-            let mut cmd = Command::new("docker");
-            cmd.current_dir(&service.path)
-                .arg("compose")
-                .arg("-f")
-                .arg(&service.compose_file)
-                .args(&["logs", "-f"]);
-
-            match cmd.spawn() {
-                Ok(c) => c,
-                Err(_) => return,
-            }
-        }
+        Err(_) => return,
     };
 
     // Ignore Ctrl+C in parent while child is running
@@ -548,7 +531,7 @@ fn stream_logs(service: &Service) {
     // Ctrl+C handler will be restored when _ctrlc_guard is dropped
 }
 
-fn cleanup_data(services: &[Service]) {
+fn cleanup_data(services: &[Service], config: &Config) {
     let selected = select_services(services);
 
     if selected.is_empty() {
@@ -569,7 +552,7 @@ fn cleanup_data(services: &[Service]) {
 
         for service in &selected {
             print!("  {} ... ", service.name.cyan());
-            if run_docker_compose(service, &["down", "-v"]) {
+            if run_docker_compose(service, &["down", "-v"], config.legacy_compose) {
                 println!("{}", "OK".green());
                 success_count += 1;
             } else {
@@ -583,27 +566,12 @@ fn cleanup_data(services: &[Service]) {
     pause();
 }
 
-fn run_docker_compose(service: &Service, args: &[&str]) -> bool {
-    let mut cmd = Command::new("docker-compose");
-    cmd.current_dir(&service.path)
-        .arg("-f")
-        .arg(&service.compose_file)
-        .args(args);
-
-    match cmd.status() {
-        Ok(status) => status.success(),
-        Err(_) => {
-            // Try newer docker compose syntax
-            let mut cmd = Command::new("docker");
-            cmd.current_dir(&service.path)
-                .arg("compose")
-                .arg("-f")
-                .arg(&service.compose_file)
-                .args(args);
-
-            cmd.status().map(|s| s.success()).unwrap_or(false)
-        }
-    }
+fn run_docker_compose(service: &Service, args: &[&str], legacy: bool) -> bool {
+    build_compose_cmd(service, legacy)
+        .args(args)
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 fn show_settings(config: &mut Config) {
@@ -623,10 +591,14 @@ fn show_settings(config: &mut Config) {
                 config.excluded_dirs.join(", ")
             }.yellow()
         );
+        println!("  Docker command: {}",
+            if config.legacy_compose { "docker-compose" } else { "docker compose" }.yellow()
+        );
 
         match interactive_menu("Settings", &[
             ("d", "Set max search depth"),
             ("e", "Manage excluded directories"),
+            ("c", "Toggle docker command (docker compose / docker-compose)"),
             ("r", "Reset to defaults"),
             ("b", "Back"),
         ]) {
@@ -650,6 +622,14 @@ fn show_settings(config: &mut Config) {
             }
             Some('e') => {
                 manage_excluded_dirs(config);
+            }
+            Some('c') => {
+                config.legacy_compose = !config.legacy_compose;
+                let cmd = if config.legacy_compose { "docker-compose" } else { "docker compose" };
+                if save_config(config).is_ok() {
+                    println!("{}", format!("Docker command set to: {}", cmd).green());
+                }
+                pause();
             }
             Some('r') => {
                 if Confirm::new("Reset all settings to defaults?")
