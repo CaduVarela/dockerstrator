@@ -88,7 +88,6 @@ fn main() {
     }
 
     // Enter alternate screen to avoid polluting terminal history
-    let _ = enable_raw_mode();
     let _ = execute!(stdout(), EnterAlternateScreen);
 
     loop {
@@ -118,7 +117,6 @@ fn main() {
     }
 
     // Exit alternate screen and restore terminal
-    let _ = disable_raw_mode();
     let _ = execute!(stdout(), LeaveAlternateScreen);
 }
 
@@ -264,7 +262,6 @@ fn interactive_menu(title: &str, items: &[(&str, &str)]) -> Option<char> {
     };
 
     let mut cursor = 0usize;
-    println!();
     draw(cursor);
 
     let _ = enable_raw_mode();
