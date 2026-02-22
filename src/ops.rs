@@ -5,7 +5,7 @@ use crate::ui::{clear_screen, interactive_menu, pause};
 use colored::*;
 use crossterm::event::{poll, read, Event, KeyCode, KeyModifiers};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
-use inquire::{Confirm, MultiSelect, Select};
+use inquire::{MultiSelect, Select};
 use std::io::{BufRead, BufReader, Write};
 use std::thread;
 
@@ -60,6 +60,13 @@ fn print_result(name: &str, ok: bool) {
     }
 }
 
+fn confirm(question: &str) -> bool {
+    matches!(
+        interactive_menu(question, &[("y", "Yes"), ("n", "No")]),
+        Some('y')
+    )
+}
+
 fn save_with_feedback(config: &Config) {
     match save_config(config) {
         Ok(_) => println!("{}", "Saved.".green()),
@@ -105,6 +112,7 @@ fn start_services(services: &[Service], config: &Config) {
     }
     let ok_count = results.iter().filter(|(_, ok)| *ok).count();
     println!("\n{}\n", format!("{}/{} services started", ok_count, results.len()).green());
+    pause();
 }
 
 fn stop_services(services: &[Service], config: &Config) {
@@ -130,11 +138,18 @@ fn stop_services(services: &[Service], config: &Config) {
         return;
     }
 
-    if Confirm::new(&format!("Stop {} service(s)?", selected.len()))
-        .with_default(false)
-        .prompt()
-        .unwrap_or(false)
-    {
+    let services_list = selected
+        .iter()
+        .map(|s| format!("  - {}", s.name))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let question = format!(
+        "Services to stop:\n{}\n\nStop {} service(s)?",
+        services_list,
+        selected.len()
+    );
+
+    if confirm(&question) {
         println!("\n{}\n", "Stopping services...".yellow());
         let results = run_parallel(selected, &["down"], config.legacy_compose);
         for (name, ok) in &results {
@@ -260,11 +275,7 @@ fn cleanup_data(services: &[Service], config: &Config) {
         return;
     }
 
-    if Confirm::new(&format!("Remove volumes from {} service(s)?", selected.len()))
-        .with_default(false)
-        .prompt()
-        .unwrap_or(false)
-    {
+    if confirm(&format!("Remove volumes from {} service(s)?", selected.len())) {
         println!("\n{}", "Removing volumes...".red());
         let results = run_parallel(selected, &["down", "-v"], config.legacy_compose);
         for (name, ok) in &results {
@@ -351,11 +362,7 @@ pub fn show_settings(config: &mut Config) {
                 pause();
             }
             Some('r') => {
-                if Confirm::new("Reset all settings to defaults?")
-                    .with_default(false)
-                    .prompt()
-                    .unwrap_or(false)
-                {
+                if confirm("Reset all settings to defaults?") {
                     *config = Config::default();
                     save_with_feedback(config);
                     println!("{}", "Settings reset to defaults!".green());
@@ -436,11 +443,7 @@ fn manage_excluded_dirs(config: &mut Config) {
                     continue;
                 }
 
-                if Confirm::new("Clear all excluded directories?")
-                    .with_default(false)
-                    .prompt()
-                    .unwrap_or(false)
-                {
+                if confirm("Clear all excluded directories?") {
                     config.excluded_dirs.clear();
                     save_with_feedback(config);
                     println!("{}", "All exclusions cleared!".green());
