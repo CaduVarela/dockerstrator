@@ -13,18 +13,24 @@ That's it. The `dockerstrator` command is now available globally.
 ## Features
 
 - **Agnostic**: Works with any folder structure containing `docker-compose.yml` files
-- **Zero Configuration**: Automatically discovers all services
+- **Zero Configuration**: Automatically discovers all services recursively
 - **Multi-select**: Choose which services to control with a clean interface
+- **Full control**: Start, stop, restart, pull, and clean volumes
+- **Status view**: See which services are UP or DOWN at a glance
+- **Log streaming**: Tail logs from any service, Ctrl+C returns to menu
+- **Keyboard-first**: Arrow keys and letter shortcuts for all actions
+- **Configurable**: Set max search depth and exclude directories
 - **Fast**: Compiled in Rust for instant execution
-- **Simple**: Single command installation
 
 ## Usage
 
 ```bash
-dockerstrator
+dockerstrator [directory]
 ```
 
-Navigate with arrow keys, select with SPACE, confirm with ENTER.
+Defaults to the current directory if omitted.
+
+Navigate with arrow keys or letter shortcuts, select services with SPACE, confirm with ENTER.
 
 ## Examples
 
@@ -45,11 +51,10 @@ Run `dockerstrator` from this directory and select which services to manage.
 ```bash
 git clone https://github.com/caduvarela/dockerstrator.git
 cd dockerstrator
-cargo build --release
-cp target/release/dockerstrator ~/.local/bin/
+cargo install --path .
 ```
 
-Requires: Rust 1.56+, build-essential
+Requires Rust 1.56+ and a C linker
 
 ## Contributing
 
