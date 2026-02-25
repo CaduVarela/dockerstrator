@@ -10,9 +10,10 @@ pub fn build_compose_cmd(service: &Service, legacy: bool) -> Command {
         cmd.arg("compose");
         cmd
     };
-    cmd.current_dir(&service.path)
-        .arg("-f")
-        .arg(&service.compose_file);
+    cmd.current_dir(&service.path);
+    for file in &service.compose_files {
+        cmd.arg("-f").arg(file);
+    }
     cmd
 }
 
@@ -41,7 +42,7 @@ pub fn check_all_statuses(services: &[Service], legacy: bool) -> Vec<(String, bo
             let service = service.clone();
             thread::spawn(move || {
                 let up = get_service_status(&service, legacy);
-                (service.name, up)
+                (service.label(), up)
             })
         })
         .collect();
@@ -62,7 +63,7 @@ pub fn run_parallel(services: Vec<Service>, args: &[&str], legacy: bool) -> Vec<
             thread::spawn(move || {
                 let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
                 let ok = run_docker_compose(&service, &args_ref, legacy);
-                (service.name, ok)
+                (service.label(), ok)
             })
         })
         .collect();

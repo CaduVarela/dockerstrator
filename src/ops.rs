@@ -75,25 +75,39 @@ fn save_with_feedback(config: &Config) {
 }
 
 fn select_services(services: &[Service]) -> Vec<Service> {
-    let service_names: Vec<&str> = services.iter().map(|s| s.name.as_str()).collect();
+    let max_name = services.iter().map(|s| s.name.len()).max().unwrap_or(0);
 
-    match MultiSelect::new("Select services:", service_names)
+    let labels: Vec<String> = services
+        .iter()
+        .map(|s| match &s.variant {
+            None => s.name.clone(),
+            Some(v) => format!("{:<width$}  {}", s.name, v.bright_black(), width = max_name),
+        })
+        .collect();
+
+    let label_refs: Vec<&str> = labels.iter().map(|s| s.as_str()).collect();
+
+    match MultiSelect::new("Select services:", label_refs.clone())
         .with_help_message("↑↓ navigate  SPACE select  ENTER confirm  ESC cancel")
         .with_formatter(&|items| {
-            let selected: Vec<&str> = items.iter().map(|s| *s.value).collect();
-            if selected.is_empty() {
+            if items.is_empty() {
                 "None selected".to_string()
             } else {
-                format!("{} selected", selected.len())
+                format!("{} selected", items.len())
             }
         })
         .prompt()
     {
-        Ok(selected) => services
-            .iter()
-            .filter(|s| selected.contains(&s.name.as_str()))
-            .cloned()
-            .collect(),
+        Ok(selected) => {
+            let selected_set: std::collections::HashSet<&str> =
+                selected.iter().copied().collect();
+            labels
+                .iter()
+                .enumerate()
+                .filter(|(_, label)| selected_set.contains(label.as_str()))
+                .map(|(i, _)| services[i].clone())
+                .collect()
+        }
         Err(_) => Vec::new(),
     }
 }
@@ -121,7 +135,7 @@ fn stop_services(services: &[Service], config: &Config) {
     let statuses = check_all_statuses(services, config.legacy_compose);
     let running: Vec<Service> = services
         .iter()
-        .filter(|s| statuses.iter().any(|(name, up)| name == &s.name && *up))
+        .filter(|s| statuses.iter().any(|(name, up)| name == &s.label() && *up))
         .cloned()
         .collect();
     println!();
@@ -191,21 +205,30 @@ fn show_status(services: &[Service], config: &Config) {
 }
 
 fn show_logs(services: &[Service], config: &Config) {
-    let service_names: Vec<&str> = services
-        .iter()
-        .map(|s| s.name.as_str())
-        .chain(std::iter::once("All"))
-        .collect();
+    let max_name = services.iter().map(|s| s.name.len()).max().unwrap_or(0);
 
-    if let Ok(selected) = Select::new("Which service?", service_names).prompt() {
+    let mut labels: Vec<String> = services
+        .iter()
+        .map(|s| match &s.variant {
+            None => s.name.clone(),
+            Some(v) => format!("{:<width$}  {}", s.name, v.bright_black(), width = max_name),
+        })
+        .collect();
+    labels.push("All".to_string());
+
+    let label_refs: Vec<&str> = labels.iter().map(|s| s.as_str()).collect();
+
+    if let Ok(selected) = Select::new("Which service?", label_refs).prompt() {
         println!("\n{}\n", "Streaming logs (Ctrl+C to return to menu)...".yellow());
 
         if selected == "All" {
             for service in services {
                 stream_logs(service, config.legacy_compose);
             }
-        } else if let Some(service) = services.iter().find(|s| s.name == selected) {
-            stream_logs(service, config.legacy_compose);
+        } else if let Some(idx) = labels.iter().position(|l| l.as_str() == selected) {
+            if let Some(service) = services.get(idx) {
+                stream_logs(service, config.legacy_compose);
+            }
         }
     }
 }
